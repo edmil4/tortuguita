@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>TurtleSim</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body {
+      background:#0d0d0d;
+      color:#e0e0e0;
+      font-family:monospace;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      padding:2rem;
+      gap:1.2rem;
+    }
+    h1 { color:#00ff99; letter-spacing:0.2em; font-size:1.3rem; }
+    .kbd-hint {
+      font-size:11px;
+      color:#444;
+      text-align:center;
+    }
+    .kbd {
+      display:inline-block;
+      background:#1a1a1a;
+      border:1px solid #333;
+      border-radius:4px;
+      padding:2px 7px;
+      color:#888;
+    }
+    .cards {
+      display:flex;
+      gap:12px;
+      width:100%;
+      max-width:700px;
+    }
+    .card {
+      flex:1;
+      background:#1a1a1a;
+      border-radius:10px;
+      padding:0.9rem 1.1rem;
+    }
+    .card-title {
+      font-size:10px;
+      color:#555;
+      letter-spacing:0.1em;
+      margin-bottom:10px;
+    }
+    .row {
+      display:flex;
+      justify-content:space-between;
+      align-items:baseline;
+      margin-bottom:6px;
+    }
+    .lbl { font-size:11px; color:#555; }
+    .val { font-size:17px; font-weight:500; }
+    .val.sm { font-size:13px; color:#777; }
+    .chart-wrap { width:100%; max-width:700px; }
+    .divider {
+      width:100%;
+      max-width:700px;
+      border:none;
+      border-top:1px solid #181818;
+    }
+    #history-table {
+      width:100%;
+      max-width:700px;
+      max-height:130px;
+      overflow-y:auto;
+      font-size:10px;
+    }
+    .h-hdr, .h-row {
+      display:grid;
+      grid-template-columns:40px repeat(5,1fr);
+      gap:2px;
+      padding:3px 4px;
+    }
+    .h-hdr { color:#333; margin-bottom:2px; }
+    .h-row { border-bottom:1px solid #111; }
+  </style>
+</head>
+<body>
+  <h1>TURTLESIM</h1>
+
+  <div class="kbd-hint">
+    <span class="kbd">↑</span> avanzar &nbsp;
+    <span class="kbd">↓</span> retroceder &nbsp;
+    <span class="kbd">←</span> girar izq &nbsp;
+    <span class="kbd">→</span> girar der
+  </div>
+
+  <!-- CAJITAS -->
+  <div class="cards">
+    <div class="card" style="border-left:3px solid #00ff99">
+      <div class="card-title">POSICIÓN</div>
+      <div class="row"><span class="lbl">x</span><span id="val-x" class="val" style="color:#00ff99">0.00</span></div>
+      <div class="row"><span class="lbl">y</span><span id="val-y" class="val" style="color:#00ff99">0.00</span></div>
+      <div class="row"><span class="lbl">θ (rad)</span><span id="val-t" class="val sm" style="color:#EF9F27">0.0000</span></div>
+    </div>
+    <div class="card" style="border-left:3px solid #EF9F27">
+      <div class="card-title">VELOCIDAD</div>
+      <div class="row"><span class="lbl">lineal v</span><span id="vel-v" class="val" style="color:#EF9F27">0.00</span></div>
+      <div class="row"><span class="lbl">angular ω</span><span id="vel-w" class="val sm" style="color:#EF9F27">0.0000</span></div>
+      <div class="row"><span class="lbl">dirección</span><span id="vel-d" class="val sm">—</span></div>
+    </div>
+    <div class="card" style="border-left:3px solid #378ADD">
+      <div class="card-title">RECORRIDO</div>
+      <div class="row"><span class="lbl">distancia</span><span id="val-dist" class="val" style="color:#378ADD">0.00</span></div>
+      <div class="row"><span class="lbl">pasos</span><span id="val-steps" class="val sm" style="color:#378ADD">0</span></div>
+    </div>
+  </div>
+
+  <!-- GRÁFICA DE LÍNEAS -->
+  <div class="card-title" style="width:100%;max-width:700px;">VELOCIDADES EN TIEMPO REAL</div>
+  <div class="chart-wrap" style="height:130px;">
+    <canvas id="lineChart"></canvas>
+  </div>
+
+  <hr class="divider">
+
+  <!-- PLANO CARTESIANO -->
+  <div class="card-title" style="width:100%;max-width:700px;">PLANO CARTESIANO (x, y)</div>
+  <div class="chart-wrap" style="height:280px;">
+    <canvas id="robotCanvas"></canvas>
+  </div>
+
+  <hr class="divider">
+
+  <!-- HISTORIAL -->
+  <div class="card-title" style="width:100%;max-width:700px;">HISTORIAL</div>
+  <div class="h-hdr" style="width:100%;max-width:700px;">
+    <span>#</span>
+    <span style="color:#00ff99">x</span>
+    <span style="color:#00ff99">y</span>
+    <span style="color:#EF9F27">θ</span>
+    <span style="color:#EF9F27">v</span>
+    <span style="color:#EF9F27">ω</span>
+  </div>
+  <div id="history-table"></div>
+
+  <script>
+    const LINEAR_SPEED  = 8;
+    const ANGULAR_SPEED = 0.05;
+    const PAD = 60;
+    const ROBOT_SIZE = 14;
+
+    let posX = 0, posY = 0, theta = 0;
+    let velV = 0, velW = 0;
+    let totalDist = 0, steps = 0, frameCount = 0;
+    const trailX = [0], trailY = [0];
+    const keys = {};
+
+    window.addEventListener('keydown', e => {
+      if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)) {
+        e.preventDefault();
+        keys[e.key] = true;
+      }
+    });
+    window.addEventListener('keyup', e => { keys[e.key] = false; });
+
+    // Gráfica de líneas
+    const lineLabels = [], dataV = [], dataW = [];
+    const lineChart = new Chart(document.getElementById('lineChart'), {
+      type: 'line',
+      data: {
+        labels: lineLabels,
+        datasets: [
+          { label: 'v lineal', data: dataV, borderColor: '#EF9F27', backgroundColor: 'transparent', borderWidth: 2, pointRadius: 0, tension: 0.3 },
+          { label: 'ω angular', data: dataW, borderColor: '#378ADD', backgroundColor: 'transparent', borderWidth: 2, borderDash:[5,4], pointRadius: 0, tension: 0.3 }
+        ]
+      },
+      options: {
+        responsive:true, maintainAspectRatio:false, animation:false,
+        plugins:{ legend:{ labels:{ color:'#777', font:{size:10} } } },
+        scales:{
+          x:{ ticks:{display:false}, grid:{color:'#181818'} },
+          y:{ ticks:{color:'#555',font:{size:10}}, grid:{color:'#181818'} }
+        }
+      }
+    });
+
+    // Plugin robot
+    const robotPlugin = {
+      id: 'robot',
+      afterDraw(chart) {
+        const { ctx, scales:{x,y} } = chart;
+        if (trailX.length > 1) {
+          ctx.save();
+          ctx.strokeStyle='#00ff99'; ctx.lineWidth=1.5; ctx.lineJoin='round';
+          ctx.beginPath();
+          ctx.moveTo(x.getPixelForValue(trailX[0]), y.getPixelForValue(trailY[0]));
+          for (let i=1; i<trailX.length; i++)
+            ctx.lineTo(x.getPixelForValue(trailX[i]), y.getPixelForValue(trailY[i]));
+          ctx.stroke();
+          ctx.restore();
+        }
+        const cx = x.getPixelForValue(posX);
+        const cy = y.getPixelForValue(posY);
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(-theta);
+        ctx.fillStyle='#0d2233'; ctx.strokeStyle='#00ff99'; ctx.lineWidth=2;
+        ctx.fillRect(-ROBOT_SIZE/2,-ROBOT_SIZE/2,ROBOT_SIZE,ROBOT_SIZE);
+        ctx.strokeRect(-ROBOT_SIZE/2,-ROBOT_SIZE/2,ROBOT_SIZE,ROBOT_SIZE);
+        ctx.fillStyle='#EF9F27';
+        ctx.beginPath();
+        ctx.moveTo(ROBOT_SIZE/2+10, 0);
+        ctx.lineTo(ROBOT_SIZE/2, 5); ctx.lineTo(ROBOT_SIZE/2,-5);
+        ctx.closePath(); ctx.fill();
+        ctx.fillStyle='#fff';
+        ctx.beginPath(); ctx.arc(0,0,2,0,Math.PI*2); ctx.fill();
+        ctx.restore();
+      }
+    };
+
+    const robotChart = new Chart(document.getElementById('robotCanvas'), {
+      type: 'scatter',
+      plugins: [robotPlugin],
+      data: { datasets:[{data:[],pointRadius:0}] },
+      options: {
+        responsive:true, maintainAspectRatio:false, animation:false,
+        plugins:{ legend:{display:false} },
+        scales:{
+          x:{ min:-PAD, max:PAD*5, title:{display:true,text:'X',color:'#666',font:{size:10}}, grid:{color:'#181818'}, ticks:{color:'#444',font:{size:9}} },
+          y:{ min:-PAD, max:PAD*5, title:{display:true,text:'Y',color:'#666',font:{size:10}}, grid:{color:'#181818'}, ticks:{color:'#444',font:{size:9}} }
+        }
+      }
+    });
+
+    function updateRange() {
+      const minX=Math.min(...trailX)-PAD, maxX=Math.max(...trailX)+PAD;
+      const minY=Math.min(...trailY)-PAD, maxY=Math.max(...trailY)+PAD;
+      robotChart.options.scales.x.min=minX; robotChart.options.scales.x.max=maxX;
+      robotChart.options.scales.y.min=minY; robotChart.options.scales.y.max=maxY;
+    }
+
+    function addHistory() {
+      const hist = document.getElementById('history-table');
+      const row = document.createElement('div');
+      row.className = 'h-row';
+      row.innerHTML =
+        `<span style="color:#333">${steps}</span>`+
+        `<span style="color:#00ff99">${posX.toFixed(1)}</span>`+
+        `<span style="color:#00ff99">${posY.toFixed(1)}</span>`+
+        `<span style="color:#EF9F27">${theta.toFixed(3)}</span>`+
+        `<span style="color:#EF9F27">${velV.toFixed(1)}</span>`+
+        `<span style="color:#EF9F27">${velW.toFixed(3)}</span>`;
+      hist.prepend(row);
+    }
+
+    setInterval(() => {
+      frameCount++;
+      velV = 0; velW = 0;
+      let dir = '—';
+      let moved = false;
+
+      if (keys['ArrowUp'])    { velV =  LINEAR_SPEED; dir='▲ adelante'; moved=true; }
+      if (keys['ArrowDown'])  { velV = -LINEAR_SPEED; dir='▼ atrás';   moved=true; }
+      if (keys['ArrowLeft'])  { velW =  ANGULAR_SPEED; dir='◄ izquierda'; moved=true; }
+      if (keys['ArrowRight']) { velW = -ANGULAR_SPEED; dir='► derecha';  moved=true; }
+
+      theta += velW;
+      posX  += velV * Math.cos(theta);
+      posY  += velV * Math.sin(theta);
+
+      if (moved) {
+        totalDist += Math.abs(velV);
+        steps++;
+        trailX.push(posX); trailY.push(posY);
+        if (steps % 20 === 0) updateRange();
+        if (steps % 5  === 0) addHistory();
+      }
+
+      if (lineLabels.length >= 40) { lineLabels.shift(); dataV.shift(); dataW.shift(); }
+      lineLabels.push('');
+      dataV.push(+velV.toFixed(2));
+      dataW.push(+velW.toFixed(4));
+      lineChart.update();
+      robotChart.update();
+
+      document.getElementById('val-x').textContent    = posX.toFixed(2);
+      document.getElementById('val-y').textContent    = posY.toFixed(2);
+      document.getElementById('val-t').textContent    = theta.toFixed(4);
+      document.getElementById('vel-v').textContent    = velV.toFixed(2);
+      document.getElementById('vel-w').textContent    = velW.toFixed(4);
+      document.getElementById('vel-d').textContent    = dir;
+      document.getElementById('val-dist').textContent = totalDist.toFixed(2);
+      document.getElementById('val-steps').textContent= steps;
+    }, 50);
+  </script>
+</body>
+</html>
